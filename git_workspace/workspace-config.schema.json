@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Git Workspace Configuration",
+  "description": "Configuration file for git-workspace CLI tool",
+  "type": "object",
+  "properties": {
+    "repositories": {
+      "type": "array",
+      "description": "List of repositories to clone",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "description": "Git repository URL"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Git repository URL"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]+$",
+                "minLength": 1,
+                "description": "Custom directory name for the repository"
+              }
+            },
+            "required": ["url"],
+            "additionalProperties": false,
+            "description": "Repository configuration with custom directory name"
+          }
+        ]
+      }
+    }
+  },
+  "required": ["repositories"],
+  "additionalProperties": false
+}
