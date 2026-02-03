@@ -41,6 +41,21 @@ def init(config: str, target_dir: str, recursive: bool):
         _init_single(config, target_dir)
 
 
+@main.command()
+@click.option('--config', '-c', default='workspace-config.json', 
+              help='Path to the JSON configuration file containing repository URLs.')
+@click.option('--target-dir', '-t', default='.', 
+              help='Target directory containing repositories to fetch.')
+@click.option('--recursive', '-r', is_flag=True,
+              help='Recursively find and process all workspace-config.json files in subdirectories.')
+def fetch(config: str, target_dir: str, recursive: bool):
+    """Fetch updates for all repositories in workspace configuration."""
+    if recursive:
+        _fetch_recursive(target_dir, config)
+    else:
+        _fetch_single(config, target_dir)
+
+
 def _init_recursive(target_dir: str, config_filename: str):
     """Recursively find and process all workspace config files."""
     target_path = Path(target_dir).resolve()
@@ -405,63 +420,251 @@ def _print_summary(results: List[Dict[str, Any]]):
     click.echo(f"Success rate: {success_rate:.1f}% ({len(successful)}/{total})")
 
 
-@main.command()
-def hello():
-    """Display a hello world message."""
-    click.echo("Hello, World! Welcome to git-workspace CLI tool.")
-
-
-@main.command()
-@click.option('--config-repo', '-r', help='Git repository URL containing workspace configurations')
-@click.option('--config-path', '-p', default='workspace-config.json', help='Path to config file within the repo')
-def sync(config_repo: str, config_path: str):
-    """Sync workspace configuration from a git repository."""
-    if not config_repo:
-        click.echo("❌ Please provide a config repository URL with --config-repo")
-        click.echo("Example: git-workspace sync --config-repo https://github.com/user/my-configs.git")
+def _fetch_recursive(target_dir: str, config_filename: str):
+    """Recursively find and process all workspace config files for fetching."""
+    target_path = Path(target_dir).resolve()
+    
+    if not target_path.exists():
+        click.echo(f"❌ Target directory '{target_path}' does not exist.")
         sys.exit(1)
     
-    import tempfile
-    import shutil
+    # Find all workspace config files recursively
+    config_files = []
+    for root, dirs, files in os.walk(target_path):
+        if config_filename in files:
+            config_path = Path(root) / config_filename
+            config_files.append(config_path)
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        click.echo(f"📥 Cloning config repository...")
+    if not config_files:
+        click.echo(f"❌ No '{config_filename}' files found in {target_path} or its subdirectories.")
+        sys.exit(1)
+    
+    click.echo(f"🔍 Found {len(config_files)} workspace configurations:")
+    for config_file in config_files:
+        rel_path = config_file.parent.relative_to(target_path)
+        click.echo(f"   - {rel_path or '.'}")
+    click.echo()
+    
+    if not click.confirm(f"Fetch updates for all {len(config_files)} workspace configurations?"):
+        click.echo("Operation cancelled.")
+        sys.exit(0)
+    
+    results = []
+    
+    for i, config_file in enumerate(config_files, 1):
+        workspace_dir = config_file.parent
+        rel_path = workspace_dir.relative_to(target_path) or Path('.')
+        
+        click.echo(f"[{i}/{len(config_files)}] Processing workspace: {rel_path}")
+        click.echo("─" * 60)
         
         try:
+            _fetch_single(str(config_file), str(workspace_dir))
+            results.append({
+                'path': rel_path,
+                'status': 'success',
+                'message': 'Workspace fetched successfully'
+            })
+        except SystemExit as e:
+            results.append({
+                'path': rel_path,
+                'status': 'failed',
+                'message': f'Fetch failed (exit code: {e.code})'
+            })
+        except Exception as e:
+            results.append({
+                'path': rel_path,
+                'status': 'failed',
+                'message': f'Unexpected error: {str(e)}'
+            })
+        
+        click.echo()
+    
+    # Print summary
+    _print_recursive_summary(results)
+
+
+def _fetch_single(config: str, target_dir: str):
+    """Fetch updates for a single workspace."""
+    target_path = Path(target_dir).resolve()
+    
+    # If config is just the filename, look for it in the target directory
+    if config == 'workspace-config.json' and not Path(config).exists():
+        config_path = target_path / config
+    else:
+        config_path = Path(config)
+    
+    # Check if config file exists
+    if not config_path.exists():
+        click.echo(f"❌ Configuration file '{config_path}' not found.")
+        sys.exit(1)
+    
+    # Check if target directory exists
+    if not target_path.exists():
+        click.echo(f"❌ Target directory '{target_path}' does not exist.")
+        sys.exit(1)
+    
+    # Load configuration
+    try:
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+    except json.JSONDecodeError as e:
+        click.echo(f"❌ Invalid JSON in configuration file: {e}")
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error reading configuration file: {e}")
+        sys.exit(1)
+    
+    repositories = config_data.get('repositories', [])
+    if not repositories:
+        click.echo("❌ No repositories found in configuration file.")
+        sys.exit(1)
+    
+    click.echo(f"🔄 Fetching updates for {len(repositories)} repositories...")
+    click.echo(f"📁 Target directory: {target_path}")
+    click.echo()
+    
+    results = []
+    
+    for i, repo_config in enumerate(repositories, 1):
+        # Handle both string URLs and objects with URL and directory
+        if isinstance(repo_config, str):
+            repo_url = repo_config
+            repo_name = _get_repo_name_from_url(repo_url)
+        elif isinstance(repo_config, dict):
+            repo_url = repo_config.get('url')
+            if not repo_url:
+                click.echo(f"[{i}/{len(repositories)}] ❌ Invalid config: missing 'url' field")
+                results.append({
+                    'repo_url': str(repo_config),
+                    'repo_name': 'unknown',
+                    'status': 'failed',
+                    'message': "Missing 'url' field in repository configuration"
+                })
+                continue
+            repo_name = repo_config.get('directory') or _get_repo_name_from_url(repo_url)
+        else:
+            click.echo(f"[{i}/{len(repositories)}] ❌ Invalid config format")
+            results.append({
+                'repo_url': str(repo_config),
+                'repo_name': 'unknown',
+                'status': 'failed',
+                'message': 'Repository configuration must be a string URL or object with url/directory fields'
+            })
+            continue
+        
+        repo_path = target_path / repo_name
+        
+        # Check if directory exists
+        if not repo_path.exists():
+            click.echo(f"[{i}/{len(repositories)}] Fetching {repo_name}... ❌ (directory not found)")
+            results.append({
+                'repo_url': repo_url,
+                'repo_name': repo_name,
+                'status': 'failed',
+                'message': f'Directory {repo_name} does not exist. Run init first.'
+            })
+            continue
+        
+        # Check if it's a git repository
+        if not (repo_path / '.git').exists():
+            click.echo(f"[{i}/{len(repositories)}] Fetching {repo_name}... ❌ (not a git repository)")
+            results.append({
+                'repo_url': repo_url,
+                'repo_name': repo_name,
+                'status': 'failed',
+                'message': f'{repo_name} is not a git repository'
+            })
+            continue
+        
+        click.echo(f"[{i}/{len(repositories)}] Fetching {repo_name}...", nl=False)
+        
+        try:
+            # Fetch updates for the repository
             result = subprocess.run(
-                ['git', 'clone', config_repo, str(temp_path / 'config-repo')],
+                ['git', 'fetch', '--all', '--prune'],
+                cwd=str(repo_path),
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=300  # 5 minute timeout
             )
             
-            if result.returncode != 0:
-                click.echo(f"❌ Failed to clone config repository: {result.stderr}")
-                sys.exit(1)
-                
-            config_source = temp_path / 'config-repo' / config_path
-            config_dest = Path.cwd() / 'workspace-config.json'
-            
-            if not config_source.exists():
-                click.echo(f"❌ Configuration file '{config_path}' not found in repository")
-                sys.exit(1)
-                
-            shutil.copy2(config_source, config_dest)
-            click.echo(f"✅ Configuration synced to {config_dest}")
-            
-            # Ask if user wants to run init
-            if click.confirm("🚀 Initialize workspace with the synced configuration?"):
-                # Import the init command functionality
-                ctx = click.get_current_context()
-                ctx.invoke(init, config='workspace-config.json', target_dir='.')
+            if result.returncode == 0:
+                click.echo(" ✅")
+                results.append({
+                    'repo_url': repo_url,
+                    'repo_name': repo_name,
+                    'status': 'success',
+                    'message': 'Successfully fetched'
+                })
+            else:
+                click.echo(" ❌")
+                error_msg = result.stderr.strip() or result.stdout.strip() or 'Unknown error'
+                results.append({
+                    'repo_url': repo_url,
+                    'repo_name': repo_name,
+                    'status': 'failed',
+                    'message': error_msg
+                })
                 
         except subprocess.TimeoutExpired:
-            click.echo("❌ Timeout while cloning config repository")
-            sys.exit(1)
+            click.echo(" ⏰ (timeout)")
+            results.append({
+                'repo_url': repo_url,
+                'repo_name': repo_name,
+                'status': 'timeout',
+                'message': 'Fetch operation timed out after 5 minutes'
+            })
+        except FileNotFoundError:
+            click.echo(" ❌")
+            results.append({
+                'repo_url': repo_url,
+                'repo_name': repo_name,
+                'status': 'failed',
+                'message': 'Git command not found. Please install Git.'
+            })
         except Exception as e:
-            click.echo(f"❌ Error syncing configuration: {e}")
-            sys.exit(1)
+            click.echo(" ❌")
+            results.append({
+                'repo_url': repo_url,
+                'repo_name': repo_name,
+                'status': 'failed',
+                'message': f'Unexpected error: {str(e)}'
+            })
+    
+    # Print summary
+    _print_fetch_summary(results)
+
+
+def _print_fetch_summary(results: List[Dict[str, Any]]):
+    """Print a summary of the fetch operations."""
+    click.echo()
+    click.echo("📋 Fetch Summary:")
+    click.echo("=" * 50)
+    
+    successful = [r for r in results if r['status'] == 'success']
+    failed = [r for r in results if r['status'] == 'failed']
+    timeouts = [r for r in results if r['status'] == 'timeout']
+    
+    click.echo(f"✅ Successfully fetched: {len(successful)}")
+    if successful:
+        for result in successful:
+            click.echo(f"   - {result['repo_name']}")
+    
+    if failed:
+        click.echo(f"❌ Failed to fetch: {len(failed)}")
+        for result in failed:
+            click.echo(f"   - {result['repo_name']}: {result['message']}")
+    
+    if timeouts:
+        click.echo(f"⏰ Timed out: {len(timeouts)}")
+        for result in timeouts:
+            click.echo(f"   - {result['repo_name']}: {result['message']}")
+    
+    total = len(results)
+    success_rate = len(successful) / total * 100 if total > 0 else 0
+    click.echo()
+    click.echo(f"Success rate: {success_rate:.1f}% ({len(successful)}/{total})")
 
 
 if __name__ == '__main__':

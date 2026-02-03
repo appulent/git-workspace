@@ -5,12 +5,12 @@ A Python command-line tool for managing multiple git repositories in a workspace
 ## Features
 
 - 🚀 Initialize workspace by cloning multiple repositories from a configuration file
-- 📁 Custom directory names to avoid conflicts
-- � Recursive processing of multiple nested workspaces
-- �🛡️ Safe operation - validates configuration and directory state
+- � Fetch updates for all configured repositories with a single command
+- �📁 Custom directory names to avoid conflicts
+- 🔄 Recursive processing of multiple nested workspaces
+- 🛡️ Safe operation - validates configuration and directory state
 - 📊 Detailed progress reporting and summary
 - ⚡ Continues operation even if some repositories fail to clone
-- 🔄 Sync configurations from git repositories
 
 ## Installation
 
@@ -85,6 +85,21 @@ git-workspace init --target-dir ./my-workspace
 git-workspace init --recursive
 ```
 
+### Fetch Updates
+```bash
+# Fetch updates for all repositories in current workspace
+git-workspace fetch
+
+# Use custom config file
+git-workspace fetch --config my-repos.json
+
+# Use custom target directory
+git-workspace fetch --target-dir ./my-workspace
+
+# Recursively fetch updates for all workspaces in subdirectories
+git-workspace fetch --recursive
+```
+
 ### Recursive Workspace Management
 Process multiple nested workspaces with a single command:
 
@@ -98,47 +113,16 @@ Process multiple nested workspaces with a single command:
 # Initialize all nested workspaces at once
 cd my-projects
 git-workspace init --recursive
+
+# Fetch updates for all nested workspaces
+git-workspace fetch --recursive
 ```
 
 The recursive mode will:
 - 🔍 Find all `workspace-config.json` files in subdirectories
 - 📋 Show a preview and ask for confirmation
-- 🚀 Initialize each workspace in its own directory
+- 🚀 Process each workspace in its own directory (init or fetch)
 - 📊 Provide a comprehensive summary of all operations
-
-### Sync Configuration
-```bash
-# Sync configuration from a git repository
-git-workspace sync --config-repo https://github.com/user/my-configs.git
-
-# Use config from subdirectory
-git-workspace sync --config-repo https://github.com/user/configs.git --config-path work/workspace-config.json
-```
-
-## Synchronizing Configurations
-
-### Dedicated Config Repository
-```bash
-# Create a repo for your workspace configs
-mkdir my-workspace-configs && cd my-workspace-configs
-echo '{"repositories": [...]}' > workspace-config.json
-git init && git add . && git commit -m "Add config"
-
-# On any machine
-git-workspace sync --config-repo https://github.com/user/my-workspace-configs.git
-```
-
-### Workspace as Git Repository  
-```bash
-mkdir my-workspace && cd my-workspace
-git init
-echo '{"repositories": [...]}' > workspace-config.json
-
-# Initialize workspace (automatically creates .gitignore)
-git-workspace init
-
-git add . && git commit -m "Workspace config"
-```
 
 ## Requirements
 
