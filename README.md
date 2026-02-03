@@ -134,10 +134,8 @@ mkdir my-workspace && cd my-workspace
 git init
 echo '{"repositories": [...]}' > workspace-config.json
 
-# Ignore cloned repos, keep only config
-echo "*/
-!workspace-config.json
-!.gitignore" > .gitignore
+# Initialize workspace (automatically creates .gitignore)
+git-workspace init
 
 git add . && git commit -m "Workspace config"
 ```

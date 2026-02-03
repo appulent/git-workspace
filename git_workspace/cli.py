@@ -153,13 +153,14 @@ def _init_single(config: str, target_dir: str):
     # Check if target directory exists and contains files other than workspace-config.json
     if target_path.exists():
         existing_files = list(target_path.iterdir())
-        # Filter out workspace-config.json files
-        other_files = [f for f in existing_files if f.name != 'workspace-config.json']
+        # Filter out allowed files: workspace-config.json, .gitignore, README.md
+        allowed_files = {'workspace-config.json', '.gitignore', 'README.md'}
+        other_files = [f for f in existing_files if f.name not in allowed_files]
         if other_files:
-            click.echo(f"❌ Target directory '{target_path}' contains files other than workspace-config.json:")
+            click.echo(f"❌ Target directory '{target_path}' contains files other than allowed workspace files:")
             for file in other_files:
                 click.echo(f"   - {file.name}")
-            click.echo("The init command requires a directory with only workspace-config.json to avoid conflicts.")
+            click.echo("The init command requires a directory with only workspace configuration files to avoid conflicts.")
             sys.exit(1)
     
     # Create target directory if it doesn't exist
@@ -208,6 +209,24 @@ def _init_single(config: str, target_dir: str):
     if not repositories:
         click.echo("❌ No repositories found in configuration file.")
         sys.exit(1)
+    
+    # Create .gitignore file if it doesn't exist
+    gitignore_path = target_path / '.gitignore'
+    if not gitignore_path.exists():
+        gitignore_content = """# Ignore all cloned repositories
+*/
+
+# Keep configuration and documentation files
+!workspace-config.json
+!.gitignore
+!README.md
+"""
+        try:
+            with open(gitignore_path, 'w') as f:
+                f.write(gitignore_content)
+            click.echo(f"📝 Created .gitignore file in {target_path}")
+        except Exception as e:
+            click.echo(f"⚠️  Could not create .gitignore file: {e}")
     
     click.echo(f"🚀 Initializing workspace with {len(repositories)} repositories...")
     click.echo(f"📁 Target directory: {target_path}")
