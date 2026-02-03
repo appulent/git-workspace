@@ -6,7 +6,8 @@ A Python command-line tool for managing multiple git repositories in a workspace
 
 - 🚀 Initialize workspace by cloning multiple repositories from a configuration file
 - 📁 Custom directory names to avoid conflicts
-- 🛡️ Safe operation - validates configuration and directory state
+- � Recursive processing of multiple nested workspaces
+- �🛡️ Safe operation - validates configuration and directory state
 - 📊 Detailed progress reporting and summary
 - ⚡ Continues operation even if some repositories fail to clone
 - 🔄 Sync configurations from git repositories
@@ -79,7 +80,31 @@ git-workspace init --config my-repos.json
 
 # Use custom target directory
 git-workspace init --target-dir ./my-workspace
+
+# Recursively process all workspace-config.json files in subdirectories
+git-workspace init --recursive
 ```
+
+### Recursive Workspace Management
+Process multiple nested workspaces with a single command:
+
+```bash
+# Directory structure:
+# my-projects/
+# ├── frontend/workspace-config.json
+# ├── backend/workspace-config.json  
+# └── tools/workspace-config.json
+
+# Initialize all nested workspaces at once
+cd my-projects
+git-workspace init --recursive
+```
+
+The recursive mode will:
+- 🔍 Find all `workspace-config.json` files in subdirectories
+- 📋 Show a preview and ask for confirmation
+- 🚀 Initialize each workspace in its own directory
+- 📊 Provide a comprehensive summary of all operations
 
 ### Sync Configuration
 ```bash

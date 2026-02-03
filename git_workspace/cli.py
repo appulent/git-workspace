@@ -31,8 +31,102 @@ def main():
               help='Path to the JSON configuration file containing repository URLs.')
 @click.option('--target-dir', '-t', default='.', 
               help='Target directory to clone repositories into.')
-def init(config: str, target_dir: str):
+@click.option('--recursive', '-r', is_flag=True,
+              help='Recursively find and process all workspace-config.json files in subdirectories.')
+def init(config: str, target_dir: str, recursive: bool):
     """Initialize workspace by cloning repositories from configuration file."""
+    if recursive:
+        _init_recursive(target_dir, config)
+    else:
+        _init_single(config, target_dir)
+
+
+def _init_recursive(target_dir: str, config_filename: str):
+    """Recursively find and process all workspace config files."""
+    target_path = Path(target_dir).resolve()
+    
+    # Find all config files
+    config_files = []
+    for root, dirs, files in os.walk(target_path):
+        if config_filename in files:
+            config_path = Path(root) / config_filename
+            config_files.append(config_path)
+    
+    if not config_files:
+        click.echo(f"❌ No '{config_filename}' files found in {target_path} or its subdirectories.")
+        sys.exit(1)
+    
+    click.echo(f"🔍 Found {len(config_files)} workspace configurations:")
+    for config_file in config_files:
+        rel_path = config_file.parent.relative_to(target_path)
+        click.echo(f"   - {rel_path or '.'}")
+    click.echo()
+    
+    if not click.confirm(f"Process all {len(config_files)} workspace configurations?"):
+        click.echo("Operation cancelled.")
+        sys.exit(0)
+    
+    results = []
+    
+    for i, config_file in enumerate(config_files, 1):
+        workspace_dir = config_file.parent
+        rel_path = workspace_dir.relative_to(target_path) or Path('.')
+        
+        click.echo(f"[{i}/{len(config_files)}] Processing workspace: {rel_path}")
+        click.echo("─" * 60)
+        
+        try:
+            _init_single(str(config_file), str(workspace_dir))
+            results.append({
+                'path': rel_path,
+                'status': 'success',
+                'message': 'Workspace initialized successfully'
+            })
+        except SystemExit as e:
+            results.append({
+                'path': rel_path,
+                'status': 'failed',
+                'message': f'Initialization failed (exit code: {e.code})'
+            })
+        except Exception as e:
+            results.append({
+                'path': rel_path,
+                'status': 'failed',
+                'message': f'Unexpected error: {str(e)}'
+            })
+        
+        click.echo()
+    
+    # Print summary
+    _print_recursive_summary(results)
+
+
+def _print_recursive_summary(results: List[Dict[str, Any]]):
+    """Print summary of recursive workspace initialization."""
+    click.echo("📋 Recursive Initialization Summary:")
+    click.echo("=" * 60)
+    
+    successful = [r for r in results if r['status'] == 'success']
+    failed = [r for r in results if r['status'] == 'failed']
+    
+    click.echo(f"✅ Successfully initialized: {len(successful)}")
+    if successful:
+        for result in successful:
+            click.echo(f"   - {result['path']}")
+    
+    if failed:
+        click.echo(f"❌ Failed to initialize: {len(failed)}")
+        for result in failed:
+            click.echo(f"   - {result['path']}: {result['message']}")
+    
+    total = len(results)
+    success_rate = len(successful) / total * 100 if total > 0 else 0
+    click.echo()
+    click.echo(f"Success rate: {success_rate:.1f}% ({len(successful)}/{total})")
+
+
+def _init_single(config: str, target_dir: str):
+    """Initialize a single workspace (extracted from original init function)."""
     target_path = Path(target_dir).resolve()
     
     # If config is just the filename, look for it in the target directory
